@@ -15,16 +15,23 @@ namespace esphome::pid {
  * Open-loop first-order-plus-dead-time (FOPDT) process identifier.
  *
  * Runs a "bump test":
- *   1. Hold the controller output at 0 for `baseline_duration_` seconds and
- *      collect samples to establish a baseline temperature (T0) and noise level.
+ *   1. Hold the controller output at `baseline_output_` for `baseline_duration_`
+ *      seconds and collect samples to establish a baseline temperature (T0)
+ *      and noise level.
  *   2. Step the output up to `step_output_` and record the process response
  *      until it plateaus or `max_test_duration_` elapses.
  *   3. Fit an FOPDT model using the classic two-point method:
- *          K   = (T_final - T0) / step_output
+ *          K   = (T_final - T0) / (step_output - baseline_output)
  *          tau = 1.5 * (t_63 - t_28)
  *          L   = t_63 - tau
  *      where t_28 and t_63 are the times to reach 28.3% and 63.2% of the
  *      total temperature rise from T0.
+ *
+ * The baseline output is configurable so that systems whose sensor has a
+ * measurement floor (e.g. an NTC that can't read below 100 °C) can hold a
+ * constant "preheat" output during the baseline phase to keep the process
+ * value in the sensor's linear range. Only the *difference* between the
+ * baseline and step outputs contributes to the identified gain.
  *
  * While the identifier is running the PID output is fully overridden — the
  * regular PID error/integral/derivative calculations are skipped so they do
@@ -52,9 +59,17 @@ class PIDModelIdentifier {
 
   void set_identifier_id(std::string id) { id_ = std::move(id); }
   /// Bump size, in the same units the PID output uses (e.g. 0.30 = 30% heat).
-  /// Positive drives a heater; negative drives a cooler.
+  /// Positive drives a heater; negative drives a cooler. The identified gain
+  /// K is normalized by (step_output - baseline_output), so only their
+  /// difference matters for K.
   void set_step_output(float v) { step_output_ = v; }
-  /// How long to hold output at 0 before applying the step, in seconds.
+  /// Output level held during the baseline phase. Defaults to 0. Set this to
+  /// a non-zero value when the sensor cannot read the plant's off-state
+  /// (e.g. an NTC with a lower detectable temperature limit) — the identifier
+  /// will drive the plant to a stable measurable baseline before stepping.
+  void set_baseline_output(float v) { baseline_output_ = v; }
+  /// How long to hold output at `baseline_output` before applying the step,
+  /// in seconds.
   void set_baseline_duration(float s) { baseline_duration_s_ = s; }
   /// Hard safety cap on total test time (baseline + step), in seconds.
   void set_max_test_duration(float s) { max_test_duration_s_ = s; }
@@ -83,6 +98,7 @@ class PIDModelIdentifier {
 
   // Configuration
   float step_output_ = 0.3f;
+  float baseline_output_ = 0.0f;
   float baseline_duration_s_ = 30.0f;
   float max_test_duration_s_ = 600.0f;  // 10 minutes safety cap
   float plateau_slope_per_min_ = 0.01f; // 1%/minute

@@ -31,9 +31,10 @@ PIDModelIdentifier::UpdateResult PIDModelIdentifier::update(float process_variab
     state_ = IDENT_BASELINE;
     ESP_LOGI(TAG,
              "%s: Model identification started.\n"
-             "  Holding output at 0 for %.1fs to establish baseline.\n"
-             "  Then stepping to %.3f for up to %.1fs.",
-             id_.c_str(), baseline_duration_s_, step_output_, max_test_duration_s_);
+             "  Holding output at %.3f for %.1fs to establish baseline.\n"
+             "  Then stepping to %.3f (delta=%+0.3f) for up to %.1fs.",
+             id_.c_str(), baseline_output_, baseline_duration_s_, step_output_,
+             step_output_ - baseline_output_, max_test_duration_s_);
   }
 
   const float elapsed_s = (now_ms - start_ms_) / 1000.0f;
@@ -50,7 +51,7 @@ PIDModelIdentifier::UpdateResult PIDModelIdentifier::update(float process_variab
   if (state_ == IDENT_BASELINE) {
     if (!std::isnan(process_variable))
       baseline_samples_.push_back({now_ms, process_variable});
-    res.output = 0.0f;
+    res.output = baseline_output_;
 
     if (elapsed_s >= baseline_duration_s_) {
       if (baseline_samples_.size() < 3) {
@@ -184,8 +185,9 @@ bool PIDModelIdentifier::analyze_() {
     failure_reason_ = "process did not respond significantly to the step (delta too small vs noise)";
     return false;
   }
-  if (step_output_ == 0.0f) {
-    failure_reason_ = "step_output is zero";
+  const float delta_u = step_output_ - baseline_output_;
+  if (delta_u == 0.0f) {
+    failure_reason_ = "step_output equals baseline_output (delta_u is zero)";
     return false;
   }
 
@@ -202,7 +204,7 @@ bool PIDModelIdentifier::analyze_() {
 
   const float tau = 1.5f * (t63 - t28);
   const float dead_time = std::max(0.0f, t63 - tau);
-  const float gain = delta / step_output_;
+  const float gain = delta / delta_u;
 
   if (!(tau > 0.0f) || !std::isfinite(gain)) {
     failure_reason_ = "computed model is not physically valid";
@@ -220,8 +222,8 @@ void PIDModelIdentifier::dump_config() {
     ESP_LOGI(TAG,
              "%s: FOPDT Model Identification:\n"
              "  State: Succeeded!\n"
-             "  Baseline PV: %.3f (noise sigma %.3f)\n"
-             "  Step output: %.3f, duration %.1fs, %zu samples\n"
+             "  Baseline output: %.3f  =>  Baseline PV: %.3f (noise sigma %.3f)\n"
+             "  Step output: %.3f (delta_u=%+0.3f), duration %.1fs, %zu samples\n"
              "\n"
              "  Copy into your PID control_parameters block:\n"
              "\n"
@@ -229,7 +231,8 @@ void PIDModelIdentifier::dump_config() {
              "    dead_time: %.2fs\n"
              "    time_constant: %.2fs\n"
              "    gain: %.4f\n",
-             id_.c_str(), baseline_pv_, baseline_noise_, step_output_,
+             id_.c_str(), baseline_output_, baseline_pv_, baseline_noise_,
+             step_output_, step_output_ - baseline_output_,
              (step_samples_.empty() ? 0.0f : (step_samples_.back().t_ms - step_start_ms_) / 1000.0f),
              step_samples_.size(), result_.dead_time, result_.time_constant, result_.gain);
     return;

@@ -50,6 +50,7 @@ CONF_SAMPLE_INTERVAL = "sample_interval"
 
 # FOPDT model identifier action parameters
 CONF_STEP_OUTPUT = "step_output"
+CONF_BASELINE_OUTPUT = "baseline_output"
 CONF_BASELINE_DURATION = "baseline_duration"
 CONF_MAX_TEST_DURATION = "max_test_duration"
 
@@ -255,6 +256,9 @@ async def set_control_parameters(config, action_id, template_arg, args):
                 CONF_STEP_OUTPUT, default=0.30
             ): cv.possibly_negative_percentage,
             cv.Optional(
+                CONF_BASELINE_OUTPUT, default=0.0
+            ): cv.possibly_negative_percentage,
+            cv.Optional(
                 CONF_BASELINE_DURATION, default="30s"
             ): cv.positive_time_period_milliseconds,
             cv.Optional(
@@ -268,6 +272,7 @@ async def identify_model_to_code(config, action_id, template_arg, args):
     paren = await cg.get_variable(config[CONF_ID])
     var = cg.new_Pvariable(action_id, template_arg, paren)
     cg.add(var.set_step_output(config[CONF_STEP_OUTPUT]))
+    cg.add(var.set_baseline_output(config[CONF_BASELINE_OUTPUT]))
     cg.add(
         var.set_baseline_duration(config[CONF_BASELINE_DURATION].total_milliseconds / 1000.0)
     )
