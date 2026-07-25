@@ -8,6 +8,7 @@
 #include "esphome/components/output/float_output.h"
 #include "pid_controller.h"
 #include "pid_autotuner.h"
+#include "pid_model_identifier.h"
 
 namespace esphome::pid {
 
@@ -99,6 +100,7 @@ class PIDClimate final : public climate::Climate, public Component {
     default_target_temperature_ = default_target_temperature;
   }
   void start_autotune(std::unique_ptr<PIDAutotuner> &&autotune);
+  void start_identify(std::unique_ptr<PIDModelIdentifier> &&identifier);
   void reset_integral_term();
 
  protected:
@@ -126,6 +128,7 @@ class PIDClimate final : public climate::Climate, public Component {
   CallbackManager<void()> pid_computed_callback_;
   float default_target_temperature_;
   std::unique_ptr<PIDAutotuner> autotuner_;
+  std::unique_ptr<PIDModelIdentifier> identifier_;
   bool do_publish_ = false;
 };
 
@@ -149,6 +152,29 @@ template<typename... Ts> class PIDAutotuneAction final : public Action<Ts...> {
   float noiseband_;
   float positive_output_;
   float negative_output_;
+  PIDClimate *parent_;
+};
+
+template<typename... Ts> class PIDIdentifyModelAction final : public Action<Ts...> {
+ public:
+  PIDIdentifyModelAction(PIDClimate *parent) : parent_(parent) {}
+
+  void set_step_output(float v) { step_output_ = v; }
+  void set_baseline_duration(float s) { baseline_duration_ = s; }
+  void set_max_test_duration(float s) { max_test_duration_ = s; }
+
+  void play(const Ts &...x) {
+    auto ident = make_unique<PIDModelIdentifier>();
+    ident->set_step_output(this->step_output_);
+    ident->set_baseline_duration(this->baseline_duration_);
+    ident->set_max_test_duration(this->max_test_duration_);
+    this->parent_->start_identify(std::move(ident));
+  }
+
+ protected:
+  float step_output_ = 0.3f;
+  float baseline_duration_ = 30.0f;
+  float max_test_duration_ = 600.0f;
   PIDClimate *parent_;
 };
 

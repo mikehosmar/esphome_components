@@ -158,6 +158,18 @@ void PIDClimate::update_pid_() {
         value = res.output;
       }
     }
+
+    // Check model identifier — this takes precedence over regular PID output
+    // because it must fully control the plant during the open-loop bump test.
+    if (this->identifier_ != nullptr && !this->identifier_->is_finished()) {
+      auto res = this->identifier_->update(this->current_temperature);
+      value = res.output;
+      // The controller's error/integral/derivative computed above are stale
+      // for the duration of the test; reset the integral once identification
+      // finishes so PID resumes cleanly.
+      if (this->identifier_->is_finished())
+        this->controller_.reset_accumulated_integral();
+    }
   }
 
   if (this->mode == climate::CLIMATE_MODE_OFF) {
@@ -195,5 +207,31 @@ void PIDClimate::start_autotune(std::unique_ptr<PIDAutotuner> &&autotune) {
 }
 
 void PIDClimate::reset_integral_term() { this->controller_.reset_accumulated_integral(); }
+
+void PIDClimate::start_identify(std::unique_ptr<PIDModelIdentifier> &&identifier) {
+  this->identifier_ = std::move(identifier);
+  this->identifier_->set_identifier_id(this->get_name());
+
+  ESP_LOGI(TAG,
+           "%s: FOPDT model identification has started. Your system will be driven "
+           "open-loop for the duration of the test. Do not change the setpoint or "
+           "mode until it finishes.",
+           this->get_name().c_str());
+
+  this->set_interval("identify-progress", 10000, [this]() {
+    if (this->identifier_ != nullptr && !this->identifier_->is_finished()) {
+      this->identifier_->dump_config();
+    } else if (this->identifier_ != nullptr) {
+      this->cancel_interval("identify-progress");
+    }
+  });
+
+  if (this->mode == climate::CLIMATE_MODE_OFF) {
+    ESP_LOGW(TAG,
+             "%s: !!! Climate is currently OFF — the identifier's step output will not "
+             "be written. Set a HEAT/COOL/HEAT_COOL mode before starting identification.",
+             this->get_name().c_str());
+  }
+}
 
 }  // namespace esphome::pid

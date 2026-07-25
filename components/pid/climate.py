@@ -14,7 +14,7 @@ PIDResetIntegralTermAction = pid_ns.class_(
 PIDSetControlParametersAction = pid_ns.class_(
     "PIDSetControlParametersAction", automation.Action
 )
-
+PIDIdentifyModelAction = pid_ns.class_("PIDIdentifyModelAction", automation.Action)
 CONF_DEFAULT_TARGET_TEMPERATURE = "default_target_temperature"
 
 CONF_KP = "kp"
@@ -47,6 +47,11 @@ CONF_GAIN = "gain"
 CONF_TIME_CONSTANT = "time_constant"
 CONF_DEAD_TIME = "dead_time"
 CONF_SAMPLE_INTERVAL = "sample_interval"
+
+# FOPDT model identifier action parameters
+CONF_STEP_OUTPUT = "step_output"
+CONF_BASELINE_DURATION = "baseline_duration"
+CONF_MAX_TEST_DURATION = "max_test_duration"
 
 CONFIG_SCHEMA = cv.All(
     climate.climate_schema(PIDClimate).extend(
@@ -237,4 +242,38 @@ async def set_control_parameters(config, action_id, template_arg, args):
     kd_template_ = await cg.templatable(config[CONF_KD], args, cg.float_)
     cg.add(var.set_kd(kd_template_))
 
+    return var
+
+
+@automation.register_action(
+    "climate.pid.identify_model",
+    PIDIdentifyModelAction,
+    automation.maybe_simple_id(
+        {
+            cv.Required(CONF_ID): cv.use_id(PIDClimate),
+            cv.Optional(
+                CONF_STEP_OUTPUT, default=0.30
+            ): cv.possibly_negative_percentage,
+            cv.Optional(
+                CONF_BASELINE_DURATION, default="30s"
+            ): cv.positive_time_period_milliseconds,
+            cv.Optional(
+                CONF_MAX_TEST_DURATION, default="10min"
+            ): cv.positive_time_period_milliseconds,
+        }
+    ),
+    synchronous=True,
+)
+async def identify_model_to_code(config, action_id, template_arg, args):
+    paren = await cg.get_variable(config[CONF_ID])
+    var = cg.new_Pvariable(action_id, template_arg, paren)
+    cg.add(var.set_step_output(config[CONF_STEP_OUTPUT]))
+    cg.add(
+        var.set_baseline_duration(config[CONF_BASELINE_DURATION].total_milliseconds / 1000.0)
+    )
+    cg.add(
+        var.set_max_test_duration(
+            config[CONF_MAX_TEST_DURATION].total_milliseconds / 1000.0
+        )
+    )
     return var
