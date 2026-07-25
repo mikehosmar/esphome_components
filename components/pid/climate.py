@@ -11,6 +11,9 @@ PIDAutotuneAction = pid_ns.class_("PIDAutotuneAction", automation.Action)
 PIDResetIntegralTermAction = pid_ns.class_(
     "PIDResetIntegralTermAction", automation.Action
 )
+PIDResetSmithPredictorAction = pid_ns.class_(
+    "PIDResetSmithPredictorAction", automation.Action
+)
 PIDSetControlParametersAction = pid_ns.class_(
     "PIDSetControlParametersAction", automation.Action
 )
@@ -189,6 +192,20 @@ async def to_code(config):
 async def pid_reset_integral_term(config, action_id, template_arg, args):
     paren = await cg.get_variable(config[CONF_ID])
     return cg.new_Pvariable(action_id, template_arg, paren)
+
+@automation.register_action(
+    "climate.pid.reset_smith_predictor",
+    PIDResetSmithPredictorAction,
+    automation.maybe_simple_id(
+        {
+            cv.Required(CONF_ID): cv.use_id(PIDClimate),
+        }
+    ),
+    synchronous=True,
+)
+async def pid_reset_smith_predictor(config, action_id, template_arg, args):
+    parent = await cg.get_variable(config[CONF_ID])
+    return cg.new_Pvariable(action_id, template_arg, parent)
 
 
 @automation.register_action(

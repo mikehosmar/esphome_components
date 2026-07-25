@@ -208,6 +208,8 @@ void PIDClimate::start_autotune(std::unique_ptr<PIDAutotuner> &&autotune) {
 
 void PIDClimate::reset_integral_term() { this->controller_.reset_accumulated_integral(); }
 
+void PIDClimate::reset_smith_predictor() { this->controller_.reset_smith_predictor(); }
+
 void PIDClimate::start_identify(std::unique_ptr<PIDModelIdentifier> &&identifier) {
   this->identifier_ = std::move(identifier);
   this->identifier_->set_identifier_id(this->get_name());

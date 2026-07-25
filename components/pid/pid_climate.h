@@ -102,6 +102,7 @@ class PIDClimate final : public climate::Climate, public Component {
   void start_autotune(std::unique_ptr<PIDAutotuner> &&autotune);
   void start_identify(std::unique_ptr<PIDModelIdentifier> &&identifier);
   void reset_integral_term();
+  void reset_smith_predictor();
 
  protected:
   /// Override control to change settings of the climate device.
@@ -186,6 +187,16 @@ template<typename... Ts> class PIDResetIntegralTermAction final : public Action<
   PIDResetIntegralTermAction(PIDClimate *parent) : parent_(parent) {}
 
   void play(const Ts &...x) { this->parent_->reset_integral_term(); }
+
+ protected:
+  PIDClimate *parent_;
+};
+
+template<typename... Ts> class PIDResetSmithPredictorAction final : public Action<Ts...> {
+ public:
+  PIDResetSmithPredictorAction(PIDClimate *parent) : parent_(parent) {}
+
+  void play(const Ts &...x) { this->parent_->reset_smith_predictor(); }
 
  protected:
   PIDClimate *parent_;
