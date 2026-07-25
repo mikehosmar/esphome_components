@@ -88,6 +88,17 @@ void PIDClimate::dump_config() {
                   controller_.ki_multiplier_, controller_.kd_multiplier_, controller_.deadband_output_samples_);
   }
 
+  if (controller_.smith_enabled_) {
+    ESP_LOGCONFIG(TAG,
+                  "  Smith Predictor:\n"
+                  "    gain (K): %.5f, time constant (tau): %.3fs, dead time (L): %.3fs, "
+                  "delay buffer capacity: %u",
+                  controller_.smith_gain_, controller_.smith_time_constant_, controller_.smith_dead_time_,
+                  static_cast<unsigned>(controller_.smith_delay_buffer_.capacity()));
+  } else {
+    ESP_LOGCONFIG(TAG, "  Smith Predictor disabled.");
+  }
+
   if (this->autotuner_ != nullptr) {
     this->autotuner_->dump_config();
   }

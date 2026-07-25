@@ -14,6 +14,15 @@ struct PIDController {
 
   bool in_deadband();
 
+  /// Reset Smith predictor internal state (model output, delayed history, last control output).
+  void reset_smith_predictor();
+
+  /// Returns true when the Smith predictor has valid runtime configuration.
+  bool smith_predictor_active() const {
+    return smith_enabled_ && smith_time_constant_ > 0.0f && smith_dead_time_ >= 0.0f &&
+           !std::isnan(smith_gain_) && smith_delay_buffer_.capacity() > 0;
+  }
+
   friend class PIDClimate;
 
  private:
@@ -46,6 +55,37 @@ struct PIDController {
   float proportional_term_;
   float integral_term_;
   float derivative_term_;
+
+  // -----------------------------
+  // Smith predictor (FOPDT) config
+  // -----------------------------
+  // When enabled, the PID error is computed from a predicted process value
+  //   y_hat(t) = y_m(t) + (y(t) - y_m(t - L))
+  // where y_m is the output of an internal FOPDT model driven by the previous
+  // controller output, and L is the dead time.
+  bool smith_enabled_ = false;
+  float smith_gain_ = NAN;            // K   — steady-state process gain
+  float smith_time_constant_ = 0.0f;  // tau — first-order time constant [s]
+  float smith_dead_time_ = 0.0f;      // L   — pure dead time [s]
+
+  // Runtime state for the predictor
+  float smith_model_pv_ = NAN;         // y_m(t)      — undelayed model output
+  float smith_model_pv_delayed_ = 0;   // y_m(t-L)    — delayed model output
+  float smith_compensation_ = 0;       // y(t) - y_m(t-L)
+  float smith_predicted_pv_ = NAN;     // y_hat(t)    — predicted process value
+  float smith_last_output_ = 0.0f;     // u(t-1)      — controller output driving the model
+
+  struct SmithSample {
+    uint32_t timestamp_ms;
+    float value;
+  };
+  // Ring buffer holding time-stamped no-delay model samples for dead-time lookup.
+  FixedRingBuffer<SmithSample> smith_delay_buffer_;
+
+  /// Advance the FOPDT model and compute compensation / predicted PV.
+  /// Uses process_value as the current measurement y(t) and this->smith_last_output_
+  /// as the previous controller output u(t-1).
+  void advance_smith_predictor_(float process_value);
 
   void calculate_proportional_term_();
   void calculate_integral_term_();

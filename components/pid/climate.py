@@ -4,6 +4,7 @@ from esphome.components import climate, output, sensor
 import esphome.config_validation as cv
 from esphome.const import CONF_HUMIDITY_SENSOR, CONF_ID, CONF_SENSOR
 
+import math
 pid_ns = cg.esphome_ns.namespace("pid")
 PIDClimate = pid_ns.class_("PIDClimate", climate.Climate, cg.Component)
 PIDAutotuneAction = pid_ns.class_("PIDAutotuneAction", automation.Action)
@@ -40,6 +41,13 @@ CONF_KP_MULTIPLIER = "kp_multiplier"
 CONF_KI_MULTIPLIER = "ki_multiplier"
 CONF_KD_MULTIPLIER = "kd_multiplier"
 
+# Smith predictor (dead-time compensation) parameters
+CONF_SMITH_PREDICTOR = "smith_predictor"
+CONF_GAIN = "gain"
+CONF_TIME_CONSTANT = "time_constant"
+CONF_DEAD_TIME = "dead_time"
+CONF_SAMPLE_INTERVAL = "sample_interval"
+
 CONFIG_SCHEMA = cv.All(
     climate.climate_schema(PIDClimate).extend(
         {
@@ -74,6 +82,18 @@ CONFIG_SCHEMA = cv.All(
                     cv.Optional(
                         CONF_OUTPUT_AVERAGING_SAMPLES, default=1
                     ): cv.positive_not_null_int,
+                    cv.Optional(CONF_SMITH_PREDICTOR): cv.Schema(
+                        {
+                            cv.Required(CONF_DEAD_TIME): cv.positive_time_period_milliseconds,
+                            cv.Required(
+                                CONF_TIME_CONSTANT
+                            ): cv.positive_time_period_milliseconds,
+                            cv.Optional(CONF_GAIN, default=1.0): cv.float_,
+                            cv.Optional(
+                                CONF_SAMPLE_INTERVAL, default="1s"
+                            ): cv.positive_time_period_milliseconds,
+                        }
+                    ),
                 }
             ),
         }
@@ -113,6 +133,25 @@ async def to_code(config):
         cg.add(var.set_min_integral(params[CONF_MIN_INTEGRAL]))
     if CONF_MAX_INTEGRAL in params:
         cg.add(var.set_max_integral(params[CONF_MAX_INTEGRAL]))
+
+    if CONF_SMITH_PREDICTOR in params:
+        smith = params[CONF_SMITH_PREDICTOR]
+        dead_time_s = smith[CONF_DEAD_TIME].total_milliseconds / 1000.0
+        time_constant_s = smith[CONF_TIME_CONSTANT].total_milliseconds / 1000.0
+        sample_interval_s = smith[CONF_SAMPLE_INTERVAL].total_milliseconds / 1000.0
+        # Size the delay ring buffer to hold enough samples to cover the dead
+        # time at the configured expected sample interval, plus a small
+        # safety margin for jitter. Minimum of 1 keeps front()/pop() valid
+        # even when dead_time == 0.
+        if sample_interval_s <= 0:
+            buffer_capacity = 1
+        else:
+            buffer_capacity = max(1, math.ceil(dead_time_s / sample_interval_s) + 2)
+        cg.add(var.set_smith_predictor_enabled(True))
+        cg.add(var.set_smith_gain(smith[CONF_GAIN]))
+        cg.add(var.set_smith_time_constant(time_constant_s))
+        cg.add(var.set_smith_dead_time(dead_time_s))
+        cg.add(var.init_smith_predictor_buffer(buffer_capacity))
 
     deadband_output_samples = 1
     if CONF_DEADBAND_PARAMETERS in config:

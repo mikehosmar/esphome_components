@@ -46,6 +46,22 @@ void PIDClimateSensor::update_from_parent_() {
       value = this->parent_->get_kd();
       this->publish_state(value);
       return;
+    case PID_SENSOR_TYPE_SMITH_PREDICTED_PV:
+      // Predicted process value is in temperature units — publish raw.
+      this->publish_state(this->parent_->get_smith_predicted_pv());
+      return;
+    case PID_SENSOR_TYPE_SMITH_MODEL_PV:
+      // Undelayed model output, temperature units — publish raw.
+      this->publish_state(this->parent_->get_smith_model_pv());
+      return;
+    case PID_SENSOR_TYPE_SMITH_MODEL_PV_DELAYED:
+      // Delayed model output, temperature units — publish raw.
+      this->publish_state(this->parent_->get_smith_model_pv_delayed());
+      return;
+    case PID_SENSOR_TYPE_SMITH_COMPENSATION:
+      // Compensation term (y - y_m_delayed), temperature units — publish raw.
+      this->publish_state(this->parent_->get_smith_compensation());
+      return;
     default:
       value = NAN;
       break;

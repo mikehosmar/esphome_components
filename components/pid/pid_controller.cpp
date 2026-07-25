@@ -10,8 +10,19 @@ float PIDController::update(float setpoint, float process_value) {
 
   dt_ = calculate_relative_time_();
 
-  // e(t) := r(t) - y(t)
-  error_ = setpoint - process_value;
+  // Smith predictor dead-time compensation.
+  // When active, replace the measured process value with a predicted process
+  // value so the PID sees what the plant *will* look like once the current
+  // control action has fully propagated through the dead time.
+  float control_pv = process_value;
+  if (smith_predictor_active()) {
+    advance_smith_predictor_(process_value);
+    if (!std::isnan(smith_predicted_pv_))
+      control_pv = smith_predicted_pv_;
+  }
+
+  // e(t) := r(t) - y(t)   (or r(t) - y_hat(t) under Smith prediction)
+  error_ = setpoint - control_pv;
 
   calculate_proportional_term_();
   calculate_integral_term_();
@@ -22,7 +33,12 @@ float PIDController::update(float setpoint, float process_value) {
 
   // smooth/sample the output using shared buffer with mode-appropriate sample count
   int samples = in_deadband() ? deadband_output_samples_ : output_samples_;
-  return ring_buffer_average_(output_window_, output, samples);
+  float smoothed = ring_buffer_average_(output_window_, output, samples);
+
+  // Store the (smoothed) output for the next Smith predictor step so the
+  // internal model is driven by the same signal that actually reaches the plant.
+  smith_last_output_ = smoothed;
+  return smoothed;
 }
 
 bool PIDController::in_deadband() {
@@ -120,6 +136,68 @@ float PIDController::calculate_relative_time_() {
   }
   last_time_ = now;
   return dt / 1000.0f;
+}
+
+void PIDController::reset_smith_predictor() {
+  smith_model_pv_ = NAN;
+  smith_model_pv_delayed_ = 0.0f;
+  smith_compensation_ = 0.0f;
+  smith_predicted_pv_ = NAN;
+  smith_last_output_ = 0.0f;
+  smith_delay_buffer_.clear();
+}
+
+void PIDController::advance_smith_predictor_(float process_value) {
+  // Seed model output to the current measurement the first time we run so
+  // the compensation term starts at ~0 and we don't produce a startup bump.
+  if (std::isnan(smith_model_pv_)) {
+    smith_model_pv_ = process_value;
+  }
+
+  // Advance the FOPDT model with forward Euler using the previous controller
+  // output u(t-1). We skip integration on the very first sample (dt_ == 0)
+  // to avoid using an undefined previous timestamp.
+  if (dt_ > 0.0f && smith_time_constant_ > 0.0f) {
+    float alpha = dt_ / smith_time_constant_;
+    // Clamp alpha to keep forward Euler numerically stable if a very large
+    // sample interval (e.g. sensor outage) occurs.
+    if (alpha > 1.0f)
+      alpha = 1.0f;
+    smith_model_pv_ += alpha * (smith_gain_ * smith_last_output_ - smith_model_pv_);
+  }
+
+  // Push the new no-delay model sample into the time-stamped delay buffer.
+  uint32_t now_ms = millis();
+  SmithSample sample{now_ms, smith_model_pv_};
+  if (smith_delay_buffer_.full()) {
+    smith_delay_buffer_.push_overwrite(sample);
+  } else {
+    smith_delay_buffer_.push(sample);
+  }
+
+  // Drop stale samples: keep the newest entry whose age is >= dead_time. This
+  // makes front() the best approximation of y_m(t - L). We must always leave
+  // at least one entry in the buffer.
+  const uint32_t dead_time_ms = static_cast<uint32_t>(smith_dead_time_ * 1000.0f);
+  while (smith_delay_buffer_.size() >= 2) {
+    auto it = smith_delay_buffer_.begin();
+    ++it;  // second-oldest
+    const SmithSample &second = *it;
+    // If the second-oldest is still at least dead_time old, the oldest is no
+    // longer needed and can be dropped.
+    if ((now_ms - second.timestamp_ms) >= dead_time_ms) {
+      smith_delay_buffer_.pop();
+    } else {
+      break;
+    }
+  }
+
+  // Delayed model value: oldest surviving sample.
+  smith_model_pv_delayed_ = smith_delay_buffer_.front().value;
+
+  // Smith compensation and predicted process value.
+  smith_compensation_ = process_value - smith_model_pv_delayed_;
+  smith_predicted_pv_ = smith_model_pv_ + smith_compensation_;
 }
 
 }  // namespace esphome::pid

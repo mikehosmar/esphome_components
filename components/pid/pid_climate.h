@@ -46,6 +46,16 @@ class PIDClimate final : public climate::Climate, public Component {
       controller_.output_window_.init(size);
   }
 
+  // Smith predictor configuration.
+  void set_smith_predictor_enabled(bool in) { controller_.smith_enabled_ = in; }
+  void set_smith_gain(float in) { controller_.smith_gain_ = in; }
+  void set_smith_time_constant(float in) { controller_.smith_time_constant_ = in; }
+  void set_smith_dead_time(float in) { controller_.smith_dead_time_ = in; }
+  void init_smith_predictor_buffer(int size) {
+    if (size > 0)
+      controller_.smith_delay_buffer_.init(size);
+  }
+
   float get_output_value() const { return output_value_; }
   float get_error_value() const { return controller_.error_; }
   float get_kp() { return controller_.kp_; }
@@ -66,6 +76,17 @@ class PIDClimate final : public climate::Climate, public Component {
   float get_kd_multiplier() { return controller_.kd_multiplier_; }
   int get_deadband_output_samples() { return controller_.deadband_output_samples_; }
   bool in_deadband() { return controller_.in_deadband(); }
+
+  // Smith predictor accessors (for logging and sensor exposure).
+  bool smith_predictor_enabled() const { return controller_.smith_enabled_; }
+  bool smith_predictor_active() const { return controller_.smith_predictor_active(); }
+  float get_smith_gain() const { return controller_.smith_gain_; }
+  float get_smith_time_constant() const { return controller_.smith_time_constant_; }
+  float get_smith_dead_time() const { return controller_.smith_dead_time_; }
+  float get_smith_model_pv() const { return controller_.smith_model_pv_; }
+  float get_smith_model_pv_delayed() const { return controller_.smith_model_pv_delayed_; }
+  float get_smith_compensation() const { return controller_.smith_compensation_; }
+  float get_smith_predicted_pv() const { return controller_.smith_predicted_pv_; }
 
   // int get_derivative_samples() const { return controller_.derivative_samples; }
   // float get_deadband() const { return controller_.deadband; }
